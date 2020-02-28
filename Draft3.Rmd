@@ -1,0 +1,221 @@
+---
+title: "Draft-Cleaning/EDA"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+## Business Problem
+The situation of Airbnb houses demand in Boston and Beijing. Compared it with the demand of hotels on Booking.com to futher discover the influence of competitor to Airbnb.
+
+## Data Sources
+Boston and Beijing Airbnb data: http://insideairbnb.com/get-the-data.html
+Boston and Beijing Booking data: web crawler
+
+Inside Airbnb is an non-commercial and independent dataset of Airbnb global demand, which includes the first-hand data of Airbnb booking history and reviews of users.
+
+## Preprocessing Steps 
+### Set up environment
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(readr)
+library(lubridate)
+library(ggthemes)
+library(leaflet)
+```
+
+
+### EDA Part 1 
+
+# Data Reloading
+```{r message=FALSE, warning=FALSE}
+bj_reviews_cleaned <- read.csv('bj_reviews_cleaned.csv')
+bos_reviews_cleaned <- read.csv('bos_reviews_cleaned.csv')
+
+```
+
+```{r message=FALSE, warning=FALSE}
+bj_list_cleaned <- read.csv('bj_list_cleaned.csv')
+bos_list_cleaned <- read.csv('bos_list_cleaned.csv')
+```
+
+```{r message=FALSE, warning=FALSE}
+bj_calendar_cleaned <- read.csv('bj_calendar_cleaned.csv')
+bos_calendar_cleaned <- read.csv('bos_calendar_cleaned.csv')
+```
+
+
+# Graph 1
+```{r}
+
+
+bj_reviews_yr <- bj_reviews_cleaned %>%
+  group_by(year) %>%  
+  count(listing_id) %>% 
+  arrange(desc(n)) 
+bos_reviews_yr <- bos_reviews_cleaned%>% 
+  group_by(year) %>% 
+  count(listing_id) %>% 
+  arrange(desc(n)) 
+
+
+# bjl %>% select(id, name, number_of_reviews) %>% arrange(desc(number_of_reviews))
+# bjl %>% select(id, name, number_of_reviews) %>% arrange(number_of_reviews)
+# 23437 listings have reviews for Beijing
+# 23437/38814
+#bosl %>% select(id, name, number_of_reviews) %>% #arrange(desc(number_of_reviews))
+# 3507 listings have reviews for Boston
+# 3507/3585
+# the rate of review in boston is higher than beijing 
+
+ggplot(bj_reviews_yr,aes(x=as.factor(year),y=n))+
+  geom_jitter(alpha=0.3,aes(color=n)) +
+  geom_smooth() +
+  theme_bw()+
+  scale_fill_brewer() +ylim(0,250) +labs(title = 'How popular is Airbnb in Beijing', subtitle = 'Number of reviews received for a single listing over years',color='# of reviews') + xlab('Year') + ylab('The number of reviews')
+
+ggplot(bos_reviews_yr,aes(x=as.factor(year),y=n))+
+  geom_jitter(alpha=0.3,aes(color=n)) +
+  geom_smooth() +
+  theme_bw()+
+  scale_fill_brewer() +ylim(0,250) +
+  labs(title = 'How popular is Airbnb in Boston', subtitle = 'Number of reviews received for a single listing over years',color='# of reviews') +xlab('Year') + ylab('The number of reviews')
+
+
+```
+
+# Graph 2
+
+```{r}
+
+bos_list_cleaned_rmna <- bos_list_cleaned %>% 
+  filter(!is.na(review_scores_rating)) %>% 
+  filter(!is.na(host_is_superhost))
+
+bj_list_cleaned_rmna <- bj_list_cleaned %>% 
+  filter(!is.na(review_scores_rating)) %>% 
+  filter(!is.na(host_is_superhost))
+
+bos_list_cleaned_rmna$host_response_rate <- as.numeric(bos_list_cleaned_rmna$host_response_rate)
+bj_list_cleaned_rmna$host_response_rate <- as.numeric(bj_list_cleaned_rmna$host_response_rate)
+
+summary(bj_list_cleaned_rmna$host_response_rate)
+summary(bos_list_cleaned_rmna$host_response_rate)
+
+ggplot(bos_list_cleaned_rmna, aes(x=as.factor(host_is_superhost),                                                 y=review_scores_rating)) + geom_boxplot() +
+  theme_bw() +labs(title = 'Review Rating Scores by SuperHost in Boston') + xlab('Super Host or Not') + ylab('Review Rating in 100 pts Scale')
+
+
+ggplot(bj_list_cleaned_rmna, aes(x=as.factor(host_is_superhost),                                                 y=review_scores_rating)) + geom_boxplot() +
+  theme_bw() +labs(title = 'Review Rating Scores by SuperHost in Beijing') + xlab('Super Host or Not') + ylab('Review Rating in 100 pts Scale')
+
+# ggplot(bj_list_cleaned_rmna, aes(x=as.factor(host_is_superhost),                                                 y=host_response_rate)) + geom_boxplot() +
+#   theme_bw()
+# 
+# ggplot(bos_list_cleaned_rmna, aes(x=as.factor(host_is_superhost),                                                 y=host_response_rate)) + geom_boxplot() +
+#   theme_bw()
+
+
+ggplot(bos_list_cleaned_rmna,aes(x=host_response_rate,y=review_scores_rating)) +
+  geom_jitter(aes(color=as.factor(host_is_superhost)),alpha=0.3) +theme_bw() +labs(title = 'Indicators for SuperHost in Boston', subtitle = 'Avg. Rating by Response Rate', color = 'Is SuperHost') + xlab('Host Response Rate') + ylab('Review Rating in 100 pts Scale')
+
+ggplot(bj_list_cleaned_rmna,aes(x=host_response_rate,y=review_scores_rating)) +
+  geom_jitter(aes(color=as.factor(host_is_superhost)),alpha=0.3) +theme_bw() +
+  labs(title = 'Indicators for SuperHost in Beijing', subtitle = 'Avg. Rating by Response Rate', color = 'Is SuperHost') + xlab('Host Response Rate') + ylab('Review Rating in 100 pts Scale')
+```
+
+
+# Graph 3
+```{r}
+summary(bos_calendar_cleaned$year)
+
+avg_price_bj <- bj_calendar_cleaned %>% 
+  group_by(date, wkd) %>% 
+  summarize(avgprice= mean(price, na.rm=T))
+
+avg_price_bos <- bos_calendar_cleaned %>% 
+  group_by(date, wkd) %>% 
+  summarize(avgprice=mean(price,na.rm=T))
+
+ggplot(avg_price_bos, aes(x=wkd, y=avgprice)) + 
+  geom_boxplot() + geom_jitter(alpha=0.2) + 
+  theme_bw() + 
+  labs(title = 'Price Trends over the weekday & weekends in Boston', subtitle = 'avgprice = Avg. price by day') +xlab('weekday & weekends')
+
+ggplot(avg_price_bj,aes(x=wkd,y=avgprice)) + 
+  geom_boxplot(outlier.shape=NA) + geom_jitter(alpha=0.2) +
+  theme_bw() + coord_cartesian(ylim = c(375, 420))+
+  labs(title = 'Price Trends over the weekday & weekends in Beijing', subtitle = 'avgprice = Avg. price by day') +xlab('weekday & weekends')
+```
+
+# Graph 4 
+
+```{r}
+avg_price_bj_2020 <- bj_calendar_cleaned %>% 
+  filter(year == 2020) %>% 
+  group_by(listing_id, month) %>% 
+  summarize(avgprice= mean(price,na.rm=T))
+
+avg_price_bos_2020 <- bos_calendar_cleaned %>% 
+  filter(year == 2020) %>% 
+  group_by(listing_id, month) %>% 
+  summarize(avgprice=mean(price,na.rm=T))
+
+ylim_bos<-boxplot.stats(avg_price_bos_2020$avgprice)$stats[c(1, 5)]
+ggplot(avg_price_bos_2020, aes(x = factor(month), y=avgprice)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  coord_cartesian(ylim = ylim_bos * 1.5) +
+  theme_bw() + 
+  labs(title = 'Price Trends over the month in Boston', subtitle = 'avgprice = Avg. price by listing') +xlab('Months') +ylab('average price')
+
+ylim_bj<-boxplot.stats(avg_price_bj_2020$avgprice)$stats[c(1, 5)]
+ggplot(avg_price_bj_2020, aes(x = factor(month), y=avgprice)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  coord_cartesian(ylim = ylim_bos * 2.4) +
+  theme_bw() + 
+  labs(title = 'Price Trends over the month in Beijing', subtitle = 'avgprice = Avg. price by listing') + xlab('Months') +ylab('average price')
+```
+
+
+# Graph 5
+```{r}
+bosAirbnb <- bos_list_cleaned %>% 
+  mutate(Log1pPrice = log1p(price), transformed_review = bos_list_cleaned$review_scores_rating^5)
+
+bosAirbnb <- bosAirbnb %>% select(-price, -review_scores_rating)
+
+pal <- colorNumeric(palette = rainbow(6), domain = bosAirbnb$Log1pPrice)
+
+leaflet(data = bosAirbnb[is.na(bosAirbnb$Log1pPrice)==FALSE,]) %>%  
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircleMarkers(~longitude, ~latitude, 
+                   color = ~pal(Log1pPrice), weight = 1, radius=1.5, 
+                   fillOpacity = 1, opacity = 1,
+                   label = paste("Neighbourhood:", bosAirbnb$neighbourhood_cleansed)) %>% 
+  addLegend("bottomright", pal = pal, values = ~Log1pPrice,
+            title = "Log1pPrice",
+            opacity = 1)
+
+
+BJAirbnb <- bj_list_cleaned %>% 
+  mutate(Log1pPrice = log1p(price), transformed_review = bj_list_cleaned$review_scores_rating^5)
+BJAirbnb <- BJAirbnb %>% select(-price, -review_scores_rating)
+
+pal <- colorNumeric(palette = rainbow(6), domain = BJAirbnb$Log1pPrice)
+
+leaflet(data = BJAirbnb[is.na(BJAirbnb$Log1pPrice)==FALSE,]) %>%  
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircleMarkers(~longitude, ~latitude, 
+                   color = ~pal(Log1pPrice), weight = 1, radius=1.5, 
+                   fillOpacity = 1, opacity = 1,
+                   label = paste("Neighbourhood:", BJAirbnb$neighbourhood_cleansed)) %>% 
+  addLegend("bottomright", pal = pal, values = ~Log1pPrice,
+            title = "Log1pPrice",
+            opacity = 1)
+
+
+
+```
+
