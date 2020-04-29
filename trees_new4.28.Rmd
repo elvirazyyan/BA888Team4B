@@ -1,0 +1,283 @@
+---
+title: "trees"
+author: "Mengqing Zhang"
+date: "4/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(randomForest)
+library(gbm)
+library(glmnet)
+library(scales)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(magrittr)
+require(gbm)
+require(MASS)
+library(Metrics)
+```
+
+#Preparation
+```{r}
+bosList <- read_csv("bosList.csv")
+bjList <- read_csv("bjList.csv")
+
+names(bosList)[33:42] <- c("host_resp_wt_a_day","host_resp_wt_a_few_hrs","host_resp_wt_an_hr",
+  "bed_type_Couch","bed_type_Futon","bed_type_Sofa","bed_type_Bed",
+"room_type_Hotel_room","room_type_Private_room","room_type_Shared_room" )
+
+names(bjList)[33:41] <- c("host_resp_wt_a_day","host_resp_wt_a_few_hrs","host_resp_wt_an_hr",
+  "bed_type_Couch","bed_type_Futon",
+  "bed_type_Sofa","bed_type_Bed",
+  "room_type_Private_room",
+  "room_type_Shared_room" )
+
+#Remove the first column X
+bosList<- bosList[,-1]
+bjList <- bjList[,-1]
+
+bosList <- bosList %>% dplyr::select(host_listings_count,
+                                     accommodates,bathrooms,bedrooms,beds,cleaning_fee,
+                                     guests_included,extra_people,
+                                     maximum_nights,availability_30,availability_90,
+                                     availability_365,number_of_reviews,
+                                     number_of_reviews_ltm,wifi_available,
+                                     host_response_time_nodata,
+                                     host_resp_wt_a_few_hrs,cancellation_policy_strict,
+                                     price)
+
+bjList <- bjList %>% dplyr::select(host_listings_count,
+                                   accommodates,bathrooms,bedrooms,beds,minimum_nights,
+                                   guests_included,
+                                   availability_30,availability_90,
+                                   availability_365,number_of_reviews,
+                                   number_of_reviews_ltm,TV_available,
+                                   wc_access,room_type_Shared_room,price
+)
+
+set.seed(68)
+# This will split into train and test 75-25
+bosList$train <- sample(c(0, 1), nrow(bosList), replace = TRUE, prob = c(.25, .75))
+boslist_test <- bosList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+boslist_train <- bosList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+bjList$train <- sample(c(0, 1), nrow(bjList), replace = TRUE, prob = c(.25, .75))
+bjList_test <- bjList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+bjList_train <- bjList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+# #delete the neighborhood column
+# boslist_train <- boslist_train[,-4]
+# boslist_test <- boslist_test[,-4]
+# 
+# bjList_train <- bjList_train[,-4]
+# bjList_test <-  bjList_test[,-4]
+
+#delete the last train column(0,1)
+boslist_train <- boslist_train[,-ncol(boslist_train)]
+boslist_test <- boslist_test[,-ncol(boslist_test)]
+
+bjList_train <- bjList_train[,-ncol(bjList_train)]
+bjList_test <-  bjList_test[,-ncol(bjList_test)]
+```
+
+
+#Regression Tree--Boston
+```{r}
+set.seed(68)
+#Regression tree
+fit.tree <- rpart(price~., 
+                  boslist_train, 
+                  control = rpart.control(cp = 0.0001)) 
+par(xpd = TRUE) 
+
+## Printcp will tell you what the cp of spliting into diffrent number layer and the xerror and xstd of each cp.
+printcp(fit.tree)
+## We can use the following method to choose the cp with the smallest xerror
+fit.tree$cptable[which.min(fit.tree$cptable[,"xerror"]),"CP"]
+## Build the tree model with the cp which has smallest xerror 
+tree2 <- prune(fit.tree, cp= fit.tree$cptable[which.min(fit.tree$cptable[,"xerror"]),"CP"])
+## Make the visuallization of regreesion tree
+rpart.plot(tree2)
+
+## MSE of train for Boston
+tree.pred.train = predict(tree2,boslist_train)
+mean((tree.pred.train-boslist_train$price)^2)
+
+## MSE of test for Boston
+tree.pred.test = predict(tree2,boslist_test)
+mean((tree.pred.test-boslist_test$price)^2) 
+```
+
+#Regression Tree--Beijing
+```{r}
+#Regression tree
+fit.tree <- rpart(price~., 
+                  bjList_train, 
+                  control = rpart.control(cp = 0.0001)) 
+## Printcp will tell you what the cp of spliting into diffrent number layer and the xerror and xstd of each cp.
+printcp(fit.tree)
+## We can use the following method to choose the cp with the smallest xerror
+fit.tree$cptable[which.min(fit.tree$cptable[,"xerror"]),"CP"]
+## Build the tree model with the cp which has smallest xerror 
+tree2 <- prune(fit.tree, cp= fit.tree$cptable[which.min(fit.tree$cptable[,"xerror"]),"CP"])
+## Make the visuallization of regreesion tree
+rpart.plot(tree2)
+
+## MSE of train for Beijing
+tree.pred.train = predict(tree2,bjList_train)
+mean((tree.pred.train-bjList_train$price)^2)
+
+## MSE of test for Beijing
+tree.pred.test = predict(tree2,bjList_test)
+mean((tree.pred.test-bjList_test$price)^2) 
+```
+
+
+#Random Forest--Boston
+```{r}
+##Random Forest
+#decide ntree by the plot of error vs ntree
+error_rf <- randomForest(price ~.,data=boslist_train)
+plot(error_rf,main = "Error rate of random forest")
+
+fit_rf <- randomForest(price~.,
+                       boslist_train,
+                       ntree=100,
+                       do.trace=F)
+
+varImpPlot(fit_rf,pch = 20, main = "Importance of Variables")
+
+## MSE of train for Boston 
+yhat_rf <- predict(fit_rf, boslist_train)
+train_mse_rf <- mean((yhat_rf - boslist_train$price) ^ 2)
+print(train_mse_rf)
+
+#levels(boslist_test$neighbourhood_cleansed) = levels(boslist_train$neighbourhood_cleansed)
+
+## MSE of Test for Boston 
+yhat_rf <- predict(fit_rf, boslist_test)
+test_mse_rf <- mean((yhat_rf - boslist_test$price) ^ 2)
+print(test_mse_rf)
+```
+
+#Random Forest--Beijing
+```{r}
+##Random Forest
+#decide ntree by the plot of error vs ntree
+error_rf <- randomForest(price ~.,data=bjList_train)
+plot(error_rf,main = "Error rate of random forest")
+
+fit_rf <- randomForest(price~.,
+                       bjList_train,
+                       ntree=,
+                       do.trace=F)
+
+varImpPlot(fit_rf,pch = 20, main = "Importance of Variables")
+
+## MSE of train for Beijing
+yhat_rf <- predict(fit_rf, bjList_train)
+train_mse_rf <- mean((yhat_rf - bjList_train$price) ^ 2)
+print(train_mse_rf)
+
+#levels(boslist_test$neighbourhood_cleansed) = levels(boslist_train$neighbourhood_cleansed)
+
+## MSE of Test for Beijing
+yhat_rf <- predict(fit_rf, bjList_test)
+test_mse_rf <- mean((yhat_rf - bjList_test$price) ^ 2)
+print(test_mse_rf)
+```
+
+
+
+
+#gradient boosting--Boston
+```{r}
+Boston.boost=gbm(formula = price~., distribution = "gaussian", data = boslist_train, n.trees = 500,interaction.depth = 15, shrinkage = 0.005,cv.folds = 5)
+
+# A gradient boosted model with gaussian loss function.
+# 10000 iterations were performed.
+# There were 13 predictors of which 13 had non-zero influence.
+par(mar = c(5, 8, 1, 1))
+summary(
+  Boston.boost, 
+  cBars = 10,
+  method = relative.influence, # also can use permutation.test.gbm
+  las = 2
+)
+
+perf_gbm1 = gbm.perf(Boston.boost, method = "cv")
+
+boostpre <- predict(
+                    # the model from above
+                    object = Boston.boost, 
+                    # the testing data
+                    newdata = boslist_train,
+                    # this is the number we calculated above
+                    n.trees = perf_gbm1)
+rmse_fit <- Metrics::rmse(actual = boslist_train$price, 
+                           predicted = boostpre)
+## MSE of train for Boston
+rmse_fit^2
+
+boostpre <- predict(
+  # the model from above
+  object = Boston.boost, 
+  # the testing data
+  newdata = boslist_test,
+  # this is the number we calculated above
+  n.trees = perf_gbm1)
+rmse_fit <- Metrics::rmse(actual = boslist_test$price, 
+                          predicted = boostpre)
+## MSE of test for Boston
+rmse_fit^2
+```
+
+
+#gradient boosting--Beijing
+```{r}
+beijing.boost=gbm(formula = price~., distribution = "gaussian", data = bjList_test, n.trees = 500,interaction.depth = 15, shrinkage = 0.005,cv.folds = 5)
+
+# A gradient boosted model with gaussian loss function.
+# 10000 iterations were performed.
+# There were 13 predictors of which 13 had non-zero influence.
+par(mar = c(5, 8, 1, 1))
+summary(
+  beijing.boost, 
+  cBars = 10,
+  method = relative.influence, # also can use permutation.test.gbm
+  las = 2
+)
+
+perf_gbm1 = gbm.perf(beijing.boost, method = "cv")
+
+boostpre <- predict(
+                    # the model from above
+                    object = beijing.boost, 
+                    # the testing data
+                    newdata = bjList_train,
+                    # this is the number we calculated above
+                    n.trees = perf_gbm1)
+rmse_fit <- Metrics::rmse(actual = bjList_train$price, 
+                           predicted = boostpre)
+## MSE of train for Beijing
+rmse_fit^2
+
+boostpre <- predict(
+  # the model from above
+  object = beijing.boost, 
+  # the testing data
+  newdata = bjList_test,
+  # this is the number we calculated above
+  n.trees = perf_gbm1)
+rmse_fit <- Metrics::rmse(actual = bjList_test$price, 
+                          predicted = boostpre)
+## MSE of test for Beijing
+rmse_fit^2
+```
