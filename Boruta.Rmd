@@ -1,0 +1,66 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(readr)
+library(lubridate)
+library(ggthemes)
+library(leaflet)
+library(Boruta)
+
+```
+
+```{r}
+bos_list <- read_csv('bosList.csv')
+bj_list <- read_csv('bjList.csv')
+```
+
+
+```{r}
+bos_list <- bos_list %>% select(-X1)
+bj_list <- bj_list %>% select(-X1)
+set.seed(777)
+
+bos_list$neighbourhood_cleansed <- as.factor(bos_list$neighbourhood_cleansed)
+
+bos_list <- bos_list%>% fastDummies::dummy_cols(select_columns=c('neighbourhood_cleansed'), remove_first_dummy = T) %>% select(-neighbourhood_cleansed)
+
+X <- bos_list %>% select(-price)
+
+
+
+
+
+dim(X)
+boruta1 <- Boruta(bos_list$price~.,data=X,doTrace=3)
+```
+
+```{r}
+TentativeRoughFix(boruta1, averageOver = Inf)
+plot(boruta1,colCode = c("#565A5C", "yellow", "#FF5A5F", "blue"))
+     #cex.axis=0.8, las = 2)
+getSelectedAttributes(boruta1, withTentative = F)
+```
+
+```{r}
+x <- bj_list %>% select(-price)
+bj_list$neighbourhood <- as.factor(bj_list$neighbourhood)
+bj_list <- bj_list%>% fastDummies::dummy_cols(select_columns=c('neighbourhood'), remove_first_dummy = T) %>% select(-neighbourhood)
+dim(bj_list)
+boruta2 <- Boruta(bj_list$price~.,data=x,doTrace=3,maxRuns = 50)
+```
+
+```{r}
+print(boruta2)
+
+getSelectedAttributes(boruta2, withTentative = F)
+
+
+```
+ 

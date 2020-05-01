@@ -1,0 +1,274 @@
+---
+title: "XGBoost Modeling"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(readr)
+library(ggthemes)
+library(glmnet)
+library(xgboost)
+library(Ckmeans.1d.dp)
+library(purrr)
+library(cluster)
+library(factoextra)
+library(caret)
+library(car)
+```
+
+## Load data 
+
+```{r message=FALSE, warning=FALSE}
+bosList <- read_csv('bosList.csv')
+bjList <- read_csv('bjList.csv')
+
+bjList$neighbourhood <- as.factor(bjList$neighbourhood)
+
+
+names(bosList)[33:42] <- c("host_resp_wt_a_day","host_resp_wt_a_few_hrs","host_resp_wt_an_hr",
+  "bed_type_Couch","bed_type_Futon","bed_type_Sofa","bed_type_Bed",
+"room_type_Hotel_room","room_type_Private_room","room_type_Shared_room" )
+
+names(bjList)[33:41] <- c("host_resp_wt_a_day","host_resp_wt_a_few_hrs","host_resp_wt_an_hr",
+  "bed_type_Couch","bed_type_Futon",
+  "bed_type_Sofa","bed_type_Bed",
+  "room_type_Private_room",
+  "room_type_Shared_room" )
+
+bosList<- bosList[,-1]
+bjList <- bjList[,-1]
+
+
+bosList <- bosList %>% fastDummies::dummy_cols(select_columns=c('neighbourhood_cleansed'), remove_first_dummy = T)
+  
+  
+  
+bosList <- bosList %>%
+  dplyr::select(host_listings_count,
+                   accommodates, bathrooms,bedrooms,beds,
+                   guests_included,
+                   maximum_nights,number_of_reviews,
+                   number_of_reviews_ltm,wifi_available,
+                   host_response_time_nodata,
+                   cancellation_policy_strict,
+                   price, 'neighbourhood_cleansed_Bay Village',
+                'neighbourhood_cleansed_Beacon Hill',
+                'neighbourhood_cleansed_Mattapan',
+                'neighbourhood_cleansed_South Boston',
+                'neighbourhood_cleansed_South Boston Waterfront',
+                'neighbourhood_cleansed_West End')
+      
+
+dim(bosList)
+
+bjList <- bjList%>% fastDummies::dummy_cols(select_columns=c('neighbourhood'), remove_first_dummy = T)
+bjList <- bjList %>% dplyr::select(host_listings_count,
+                  accommodates,bathrooms,bedrooms,beds,minimum_nights,
+                  maximum_nights,
+                   guests_included,
+                   availability_30,availability_90,
+                   availability_365,number_of_reviews,
+                   number_of_reviews_ltm,TV_available,
+                   wc_access,room_type_Shared_room,price,
+                  host_resp_wt_a_day,room_type_Private_room
+                   )
+dim(bjList)
+```
+
+## Deal with outliers
+
+```{r}
+x <- bosList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bosList$price <- x # we substitute 44 for price that lower than 5% quantile, and 400 for price that higher than 95% quantile 
+
+x <- bjList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bjList$price <- x # we substitute 127 for price that lower than 5% numbers and 1380 for higher than 95% 
+```
+
+## Train -Test split for Beijing
+```{r}
+set.seed(12345)
+
+# This will split into train and test 70-30
+bjList$train <- sample(c(0, 1), nrow(bjList), replace = TRUE, prob = c(.25, .75))
+bjlist_test <- bjList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+bjlist_train <- bjList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+
+#delete the last train column(0,1)
+bjlist_train <- bjlist_train[,-ncol(bjlist_train)]
+bjlist_test <- bjlist_test[,-ncol(bjlist_test)]
+```
+
+## Train/Test Split for Boston
+
+```{r}
+# This will split into train and test 75-25
+bosList$train <- sample(c(0, 1), nrow(bosList), replace = TRUE, prob = c(.25, .75))
+boslist_test <- bosList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+boslist_train <- bosList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+#delete the last train column(0,1)
+boslist_train <- boslist_train[,-ncol(boslist_train)]
+boslist_test <- boslist_test[,-ncol(boslist_test)]
+```
+ 
+ 
+## Beijing :boosting Modeling - Regression by XGboost
+```{r}
+## Using XGboost
+train_bstbj<- bjlist_train %>%  dplyr::select(-price)
+test_bstbj <- bjlist_test %>%  dplyr::select(-price)
+
+testM_bj <- as.matrix(test_bstbj)
+trainM_bj <- as.matrix(train_bstbj)
+
+price_trainBj <-bjlist_train$price
+price_testBj<- bjlist_test$price
+
+xgbGridBj <- expand.grid(nrounds = c(100,200),
+                       max_depth = c(6),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),eta = 0.05,
+                       gamma=0,min_child_weight = 1,
+                       subsample = seq(0.5,0.9,length.out=5)
+                      )
+
+
+xgb_modelBj = train(
+  trainM_bj, price_trainBj,
+  tuneGrid = xgbGridBj,
+  method = "xgbTree")
+```
+
+### Results Reporting - Beijing
+
+```{r}
+# best hyperparameters
+xgb_model$bestTune
+
+
+# Results Reporting
+bst_pred_trainBj = predict(xgb_modelBj, trainM_bj)
+mse_bst_trainBj <- mean((bst_pred_trainBj/7-price_trainBj/7)^2)
+bst_pred_testBj = predict(xgb_modelBj, test_bstbj)
+residualsBj = price_testBj - bst_pred_testBj
+mse_bst_testBj <- mean((bst_pred_testBj/7-price_testBj/7)^2)
+
+print(mse_bst_trainBj)
+print(mse_bst_testBj)
+
+# R-square Calculation
+y_test_meanBj = mean(price_testBj)
+
+# Calculate total sum of squares
+tssBj =  sum((price_testBj - y_test_meanBj)^2 )
+
+# Calculate residual sum of squares
+rssBj =  sum(residualsBj^2)
+
+# Calculate R-squared
+rsqBj  =  1 - (rssBj/tssBj)
+
+sprintf("percent variance explained, R-squared: %1.1f%%", rsqBj*100)
+```
+
+
+#### Print Importance Scores of Variables
+
+```{r}
+bjimportance <- varImp(xgb_modelBj, scale = FALSE)
+plot(bjimportance, main = 'Importance Scores For Beijing Listing')
+
+```
+
+
+## Boston:boosting Modeling - Regression by XGboost
+
+```{r}
+## Using XGboost
+train_bst <- boslist_train %>%  dplyr::select(-price)
+test_bst <- boslist_test %>%  dplyr::select(-price)
+glimpse(train_bst)
+test_m <- as.matrix(test_bst)
+train_m <- as.matrix(train_bst)
+
+price_train <-boslist_train$price
+price_test <- boslist_test$price
+
+```
+
+
+```{r}
+# We did not use cv here  
+# xgb_trcontrol = trainControl(
+#   method = "cv",
+#   number = 5,  
+#   allowParallel = TRUE,
+#   verboseIter = FALSE,
+#   returnData = FALSE
+# )
+
+
+# here we choose 0.05 instead of smaller learning rate
+# to avoid overfitting with controlling 1000 rounds. 
+xgbGrid <- expand.grid(nrounds = c(1000),
+                       max_depth = c(6),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),eta = 0.05,
+                       gamma=0,min_child_weight = 1,
+                       subsample = seq(0.5,0.9,length.out=5)
+                      )
+
+
+xgb_model = train(
+  train_m, price_train,
+  tuneGrid = xgbGrid,
+  method = "xgbTree")
+```
+
+### Results Reporting - Boston
+```{r}
+# best hyperparameters
+xgb_model$bestTune
+
+# Results Reporting
+bst_pred_train = predict(xgb_model, train_m)
+mse_bst_train <- mean((bst_pred_train-price_train)^2)
+bst_pred_test = predict(xgb_model, test_m)
+residuals = price_test - bst_pred_test
+mse_bst_test <- mean((bst_pred_test-price_test)^2)
+
+print(mse_bst_train)
+print(mse_bst_test)
+
+# R-squared calculation
+y_test_mean = mean(price_test)
+
+# Calculate total sum of squares
+tss =  sum((price_test - y_test_mean)^2 )
+
+# Calculate residual sum of squares
+rss =  sum(residuals^2)
+
+# Calculate R-squared
+rsq  =  1 - (rss/tss)
+
+sprintf("percent variance explained, R-squared: %1.1f%%", rsq*100)
+```
+
+#### Print Importance Scores of Variables
+
+```{r}
+bosimportance <- varImp(xgb_model, scale = FALSE)
+plot(bosimportance, main = 'Importance Score for Boston Listing')
+```
