@@ -1,1 +1,2 @@
-# BA888Team4B
+# BA888Team4B - Airbnb Listing Analytics in Beijing & Boston 
+Our business goal is to identify differences in Airbnb’s marketplaces and customers between Beijing in China and Boston in the United States. By generating supervised machine learning pricing modeling and conducting sentiment analysis in R, we aim to help Airbnb hosts to price their homestays better. By comparing the two cities, we also hope to enlighten the understandings of the Chinese Airbnb marketplace for the company.
