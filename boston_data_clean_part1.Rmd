@@ -1,0 +1,97 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(readr)
+library(lubridate)
+library(ggthemes)
+library(leaflet)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+bos_list <- read_csv('Boslistings.csv')
+```
+
+```{r}
+bos_list_NAomit <- bos_list %>% 
+  select(-ends_with("_url"), -experiences_offered,
+         -host_total_listings_count,-calendar_last_scraped, -country)
+head(bos_list_NAomit)
+bos_list_rmneedlss <- bos_list_NAomit[ ,-c(2:3)]
+bos_list_cleaned <- bos_list_rmneedlss[, -which(colMeans(is.na(bos_list_rmneedlss)) > 0.8)]
+bos_removed_col <- apply(bos_list_rmneedlss, 2, function(col)sum(is.na(col))/length(col))
+bos_removed_col[bos_removed_col>0.8]
+bos_list_cleaned$host_response_rate <- sapply(bos_list_cleaned$host_response_rate, 
+                                         function(x) gsub('%','',x))
+```
+
+```{r}
+# remove $ sign and ',' in numbers 
+sum(is.na(bos_list_cleaned$security_deposit))
+
+bos_list_cleaned$security_deposit = gsub("\\$", "", bos_list_cleaned$security_deposit)
+bos_list_cleaned$security_deposit =as.numeric(gsub(",","",bos_list_cleaned$security_deposit))
+
+# check the number of NAs are not changed
+
+sum(is.na(bos_list_cleaned$security_deposit))
+
+
+sum(is.na(bos_list_cleaned$price))
+
+bos_list_cleaned$price <- gsub("\\$", "", bos_list_cleaned$price) 
+bos_list_cleaned$price <- as.numeric(gsub(",","",bos_list_cleaned$price))
+
+sum(is.na(bos_list_cleaned$price))
+
+
+bos_list_cleaned$cleaning_fee <- gsub("\\$", "", bos_list_cleaned$cleaning_fee) 
+bos_list_cleaned$cleaning_fee <- as.numeric(gsub(",","",bos_list_cleaned$cleaning_fee))
+
+```
+
+```{r}
+bos_reviews <- read_csv('Bosreviews.csv')
+dim(bos_reviews)
+```
+
+
+```{r}
+bos_reviews$date <- ymd(bos_reviews$date)
+bos_reviews$year <- year(bos_reviews$date)
+bos_reviews$wkd <- wday(bos_reviews$date, label=TRUE)
+```
+
+
+```{r}
+bos_calendar <- read_csv('Boscalendar_2019.csv')
+dim(bos_calendar)
+dim(bos_list)
+```
+
+```{r}
+bos_calendar$price <- gsub("\\$", "", bos_calendar$price) 
+bos_calendar$price <- gsub(",","",bos_calendar$price) 
+sum(is.na(bos_calendar$price))/length(bos_calendar$price)
+```
+
+
+```{r}
+bos_calendar$date <- ymd(bj_calendar$date)
+bos_calendar$year <- year(bj_calendar$date)
+bos_calendar$wkd <- wday(bj_calendar$date, label=TRUE)
+bos_calendar$month <- month(ymd(bos_calendar$date))
+
+```
+
+```{r}
+write.csv(bos_reviews, 'bos_reviews_final.csv')
+write.csv(bos_calendar, 'bos_calendar_final.csv')
+write.csv(bos_list_cleaned, 'bos_list_final.csv')
+```
+

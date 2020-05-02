@@ -1,0 +1,153 @@
+---
+title: "bj_data_clean_part2"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(naniar)
+library(dplyr) # for general cleaning functions
+library(stringr) # for string manipulations
+library(magrittr)
+library(readxl)
+library(readr)
+library(caret)
+library(recipes)
+library(factoextra)
+library(tidytext)
+library(topicmodels)
+library(textdata)
+library(quanteda)
+library(fastDummies)
+library(zoo)
+```
+
+# Change dollar sign and other punctuation in numerical variables. 
+```{r message=FALSE, warning=FALSE}
+bj_list <- read_csv("beijing_list_cleaned_original.csv")
+# delete variables that we will not use and variables have too many NA
+tmp = bj_list %>%
+  select( -c(X,id,summary,house_rules,host_id,host_since,
+             latitude,longitude,property_type, calendar_updated, is_business_travel_ready))%>%
+  replace_with_na_all(condition = ~.x %in% common_na_strings)
+
+tmp$extra_people <- gsub("\\$","",tmp$extra_people)
+# sum(is.na(tmp$extra_people))
+tmp$extra_people <- as.numeric(gsub(",","",tmp$extra_people))
+# sum(is.na(tmp$extra_people2))
+```
+
+# Extract labels from text and transfer to dummies
+```{r message=FALSE, warning=FALSE}
+# TV (with cable TV)
+tmp$list <- NA
+for (i in 1:nrow(tmp)) {
+  tmp$list[i] <- strsplit(tmp$amenities[i], ",")}
+
+# TV
+tmp$TV_available <- NA
+tmp$TV_available <- 0
+tmp$TV_available[grep("TV" ,tmp$list)] <- 1
+
+# wifi (with internet)
+tmp$wifi_available <- NA
+tmp$wifi_available <- 0
+tmp$wifi_available[grep('Wifi', tmp$list)] <- 1
+
+# air conditioning (with heating)
+tmp$AirCondition_available <- NA
+tmp$AirCondition_available <- 0
+tmp$AirCondition_available[grep("Air conditioning",tmp$list)] <- 1
+# Parking (paid and free)
+tmp$Parking <- NA
+tmp$Parking <- 0
+tmp$Parking[grep('parking',tmp$list)] <- 1
+# smoking allowed
+tmp$Smoking_allowed <- NA
+tmp$Smoking_allowed <- 0
+tmp$Smoking_allowed[grep('Smoking allowed',tmp$list)] <- 1
+# Pets allowed
+tmp$Pets_allowed <- NA
+tmp$Pets_allowed <- 0
+tmp$Pets_allowed[grep('Pets allowed',tmp$list)] <- 1
+# Wheelchair accessible 
+tmp$wc_access <- NA
+tmp$wc_access <- 0
+tmp$wc_access[grep('Wheelchair accessible',tmp$list)] <- 1
+dim(tmp)
+```
+
+# Dummies Transformation
+```{r message=FALSE, warning=FALSE}
+# instant_bookable and host_is_superhost transform to dummy
+tmp$instant_bookable <- as.integer(as.logical(tmp$instant_bookable))
+tmp$host_is_superhost <- as.integer(as.logical(tmp$host_is_superhost))
+# cancellation policy, bed type, room type, host response time to dummy
+tmp$cancellation_policy <- as.factor(tmp$cancellation_policy)
+levels(tmp$cancellation_policy)
+
+tmp$room_type <- as.factor(tmp$room_type)
+levels(tmp$room_type)
+
+tmp$bed_type <- as.factor(tmp$bed_type)
+levels(tmp$bed_type)
+
+tmp$neighbourhood <- as.factor(tmp$neighbourhood)
+levels(tmp$neighbourhood)
+# rename NA into nodata for host_response_rate
+tmp$host_response_time[is.na(tmp$host_response_time)] <- c('nodata')
+tmp$host_response_time <- as.factor(tmp$host_response_time)
+levels(tmp$host_response_time)
+```
+
+
+```{r}
+# Transform into dummies 
+temp <- tmp %>% fastDummies::dummy_cols(select_columns=c('host_response_time', 'bed_type','room_type','cancellation_policy'), remove_first_dummy = T) %>% select(-host_response_time, -bed_type,-room_type,-cancellation_policy, -amenities,-list)
+
+temp$host_response_rate <- as.numeric(temp$host_response_rate)
+```
+
+# NA removal 
+```{r message=FALSE, warning=FALSE}
+# change missing values of response rate, cleaning fee, security deposit to neighborhoods mean. 
+temp <-  temp %>%
+    group_by(neighbourhood) %>%
+    mutate(
+        Avg_responserate = mean(host_response_rate,na.rm=T), 
+        Avg_cleaningfee = mean(cleaning_fee,na.rm=T),
+        Avg_securitydeposit = mean(security_deposit,na.rm=T)
+    )
+temp <- temp %>% mutate(host_response_rate=
+                          tidyr::replace_na(Avg_responserate),
+                        cleaning_fee = tidyr::replace_na(Avg_cleaningfee),
+                        security_deposit= tidyr::replace_na(Avg_securitydeposit))
+```
+
+```{r message=FALSE, warning=FALSE}
+temp <-  temp %>%
+    group_by(neighbourhood) %>%
+    mutate(
+        Avg_rating = mean(review_scores_rating,na.rm=T),
+        Avg_reviewsmonth= mean(reviews_per_month, na.rm=T)
+    )
+temp <- temp %>% mutate(review_scores_rating=
+                          tidyr::replace_na(Avg_rating),
+                        reviews_per_month = 
+                          tidyr::replace_na(Avg_reviewsmonth))
+bjlist <- temp %>% select(-Avg_responserate,-Avg_cleaningfee,-Avg_securitydeposit,
+                           -Avg_responserate,
+                           -Avg_rating,
+                           -review_scores_accuracy,
+                           -review_scores_cleanliness, 
+                           -review_scores_checkin,
+                           -review_scores_communication,
+                           -review_scores_location,
+                           -review_scores_value,
+                           -Avg_reviewsmonth) %>% tidyr::drop_na()
+dim(bjlist)
+```
+
+```{r}
+write.csv(bjlist,'bjList.csv')
+```
+

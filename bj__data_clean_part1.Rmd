@@ -1,0 +1,84 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(readr)
+library(lubridate)
+library(ggthemes)
+library(leaflet)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+bj_list <- read_csv('listings.csv')
+dim(bj_list)
+```
+
+```{r}
+bj_list_NAomit <- bj_list %>% 
+  select(-ends_with("_url"), -experiences_offered,
+         -host_total_listings_count,-calendar_last_scraped, -country)
+bj_list_rmneedlss <- bj_list_NAomit[ ,-c(2:3)]
+bj_list_cleaned <- bj_list_rmneedlss[, -which(colMeans(is.na(bj_list_rmneedlss)) > 0.8)]
+bj_removed_col <- apply(bj_list_rmneedlss, 2, function(col)sum(is.na(col))/length(col))
+bj_removed_col[bj_removed_col>0.8]
+
+# remove % for `host_response_rate`
+bj_list_cleaned$host_response_rate <- sapply(bj_list_cleaned$host_response_rate, 
+                                         function(x) gsub('%','',x))
+```
+
+```{r}
+# remove $ and ',' for security deposit, price, and cleaning_Fee
+bj_list_cleaned$security_deposit = gsub("\\$", "", bj_list_cleaned$security_deposit) %>% as.numeric()
+bj_list_cleaned$price <- gsub("\\$", "", bj_list_cleaned$price) %>% as.numeric()
+bj_list_cleaned$cleaning_fee <- gsub("\\$", "", bj_list_cleaned$cleaning_fee) %>% as.numeric()
+```
+
+```{r message=FALSE}
+bj_reviews <- read_csv('reviews.csv')
+dim(bj_reviews)
+dim(bj_calendar)
+dim(bj_list)
+```
+
+
+```{r}
+bj_reviews$date <- ymd(bj_reviews$date)
+bj_reviews$year <- year(bj_reviews$date)
+bj_reviews$wkd <- wday(bj_reviews$date, label=TRUE)
+```
+
+
+```{r message=FALSE}
+bj_calendar <- read_csv('calendar.csv')
+```
+
+```{r}
+bj_calendar$price <- gsub("\\$", "", bj_calendar$price) 
+```
+
+
+```{r}
+head(bj_calendar$price)
+```
+
+```{r}
+bj_calendar$date <- ymd(bj_calendar$date)
+bj_calendar$year <- year(bj_calendar$date)
+bj_calendar$wkd <- wday(bj_calendar$date, label=TRUE)
+bj_calendar$month <- month(ymd(bj_calendar$date))
+
+```
+
+```{r}
+head(bj_calendar)
+write.csv(bj_reviews, 'bj_reviews2.csv')
+write.csv(bj_calendar, 'bj_calendar2.csv')
+write.csv(bj_list_cleaned, 'bj_list2.csv')
+```
+
