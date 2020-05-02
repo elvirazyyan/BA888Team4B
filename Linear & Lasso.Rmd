@@ -1,0 +1,211 @@
+---
+title: "Linear"
+author: "Yuhong Lu"
+date: "4/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(glmnet)
+library(car)
+library(outliers)
+```
+
+## Prepration
+```{r}
+# Read csv file
+bosList <- read_csv("bosList.csv")
+bjList <- read_csv("bjList.csv")
+
+# Turn neighbourhood to dummy
+bosList <- bosList %>% 
+  fastDummies::dummy_cols(select_columns=c('neighbourhood_cleansed'), remove_first_dummy = T) %>%
+  select(-neighbourhood_cleansed)
+
+bjList <- bjList %>% 
+  fastDummies::dummy_cols(select_columns=c('neighbourhood'), remove_first_dummy = T) %>%
+  select(-neighbourhood)
+
+# Select variables suggested by boruta
+bosList <- bosList %>%
+  dplyr::select(host_listings_count,
+                accommodates, bathrooms,bedrooms,beds,
+                guests_included,
+                maximum_nights,number_of_reviews,
+                number_of_reviews_ltm,wifi_available,
+                host_response_time_nodata,
+                cancellation_policy_strict,
+                price, 'neighbourhood_cleansed_Bay Village',
+                'neighbourhood_cleansed_Beacon Hill',
+                'neighbourhood_cleansed_Mattapan',
+                'neighbourhood_cleansed_South Boston',
+                'neighbourhood_cleansed_South Boston Waterfront',
+                'neighbourhood_cleansed_West End')
+
+bjList <- bjList %>% 
+  dplyr::select(host_listings_count,
+                accommodates,bathrooms,bedrooms,beds,
+                minimum_nights, maximum_nights,
+                guests_included,
+                availability_30, availability_90, availability_365, 
+                number_of_reviews, number_of_reviews_ltm, 
+                TV_available, wc_access, price,
+                'room_type_Shared room',
+                'host_response_time_within a day',
+                'room_type_Private room')
+
+# Deal with outliers
+x <- bosList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bosList$price <- x
+
+x <- bjList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bjList$price <- x
+```
+
+# Linear Model for Boston
+```{r}
+# Set train and test set
+bosList$train <- sample(c(0, 1), nrow(bosList), replace = TRUE, prob = c(.25, .75))
+boslist_test <- bosList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+boslist_train <- bosList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+# Train Linear model for Boston
+lm_bos <- lm(price ~., data = boslist_train)
+
+# See how model trained
+summary(lm_bos)
+
+# Outlier Test
+outlier <- outlierTest(lm_bos)
+
+# Delete outlier
+index <- names(outlier[[1]]) %>% as.numeric()
+boslist_train <- boslist_train[-index, ]
+
+# Retrain the model
+lm_bos <- lm(price ~., data = boslist_train)
+summary(lm_bos)
+
+# MSE of train
+lm.pred.train.bos <- predict(lm_bos, boslist_train)
+mse_bos_train_lm <- mean((lm.pred.train.bos - boslist_train$price) ^ 2)
+
+# MSE of test
+lm.pred.test.bos = predict(lm_bos, boslist_test)
+mse_bos_test_lm <- mean((lm.pred.test.bos - boslist_test$price) ^ 2) 
+```
+
+# Linear Model for Beijing
+```{r}
+# Set train and test set
+bjList$train <- sample(c(0, 1), nrow(bjList), replace = TRUE, prob = c(.25, .75))
+bjlist_test <- bjList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+bjlist_train <- bjList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+# Train Linear model for Boston
+lm_bj <- lm(price ~., data = bjlist_train)
+
+# See how model trained
+summary(lm_bj)
+
+# Outlier Test
+outlier <- outlierTest(lm_bj)
+
+# Delete outlier
+index <- names(outlier[[1]]) %>% as.numeric()
+bjlist_train <- bjlist_train[-index, ]
+
+# Retrain the model
+lm_bj <- lm(price ~., data = bjlist_train)
+summary(lm_bj)
+
+# MSE of train
+lm.pred.train.bj <- predict(lm_bj, bjlist_train)
+mse_bj_train_lm <- mean((lm.pred.train.bj / 7 - bjlist_train$price / 7) ^ 2)
+
+# MSE of test
+lm.pred.test.bj = predict(lm_bj, bjlist_test)
+mse_bj_test_lm <- mean((lm.pred.test.bj / 7 - bjlist_test$price / 7) ^ 2) 
+```
+
+
+# Lasso Model for Boston
+```{r}
+# Set train and test
+bosList$train <- sample(c(0, 1), nrow(bosList), replace = TRUE, prob = c(.25, .75))
+boslist_test <- bosList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+boslist_train <- bosList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+x_train <- model.matrix(price ~., boslist_train)
+y_train <- boslist_train$price
+x_test <- model.matrix(price ~., boslist_test)
+y_test <- boslist_test$price
+
+# Train Lasso model for Boston
+lambdas <- 10 ^ seq(2, -3, by = -.1)
+lasso_bos <- cv.glmnet(x_train, y_train, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5)
+
+# Best lambda
+lambda_best_bos <- lasso_bos$lambda.min 
+lambda_best_bos
+
+# Prediction
+y_train_hat <- predict(lasso_bos, newx = x_train, s = lambda_best_bos)
+y_test_hat <- predict(lasso_bos, newx = x_test, s = lambda_best_bos)
+
+# Compute MSE and R square
+mse_bos_train_lasso <- mean((y_train_hat - y_train) ^ 2)
+mse_bos_test_lasso <- mean((y_test_hat - y_test) ^ 2)
+
+eval_results <- function(true, predicted, df) {
+  SSE <- sum((predicted - true)^2)
+  SST <- sum((true - mean(true))^2)
+  R_square <- 1 - SSE / SST
+  cat('R square = ', R_square)}
+eval_results(y_test, y_test_hat, boslist_test)
+```
+
+# Lasso Model for Beijing
+```{r}
+# Set train and test
+bjList$train <- sample(c(0, 1), nrow(bjList), replace = TRUE, prob = c(.25, .75))
+bjlist_test <- bjList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+bjlist_train <- bjList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+x_train <- model.matrix(price ~., bjlist_train)
+y_train <- bjlist_train$price
+x_test <- model.matrix(price ~., bjlist_test)
+y_test <- bjlist_test$price
+
+# Train Lasso model for Beijing
+lambdas <- 10 ^ seq(2, -3, by = -.1)
+lasso_bj <- cv.glmnet(x_train, y_train, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5)
+
+# Best lambda
+lambda_best_bj <- lasso_bj$lambda.min 
+lambda_best_bj
+
+# Prediction
+y_train_hat <- predict(lasso_bj, newx = x_train, s = lambda_best_bj)
+y_test_hat <- predict(lasso_bj, newx = x_test, s = lambda_best_bj)
+
+# Compute MSE and R square
+mse_bj_train_lasso <- mean((y_train_hat / 7 - y_train / 7) ^ 2)
+mse_bj_test_lasso <- mean((y_test_hat / 7 - y_test / 7) ^ 2)
+
+eval_results <- function(true, predicted, df) {
+  SSE <- sum((predicted - true)^2)
+  SST <- sum((true - mean(true))^2)
+  R_square <- 1 - SSE / SST
+  cat('R square = ', R_square)}
+eval_results(y_test, y_test_hat, bjlist_test)
+
+```
