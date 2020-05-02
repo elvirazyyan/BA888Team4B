@@ -1,7 +1,7 @@
 ---
 title: "trees"
 author: "Mengqing Zhang"
-date: "4/26/2020"
+date: "4/30/2020"
 output: html_document
 ---
 
@@ -229,7 +229,37 @@ print(test_mse_rf)
 
 ```
 
+## Deal with outliers
+```{r}
+x <- bosList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bosList$price <- x # we substitute 44 for price that lower than 5% quantile, and 400 for price that higher than 95% quantile 
 
+x <- bjList$price
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+x[x < caps[1]] <- caps[1]
+x[x > caps[2]] <- caps[2]
+bjList$price <- x # we substitute 127 for price that lower than 5% numbers and 1380 for higher than 95% 
+
+
+# This will split into train and test 75-25
+bosList$train <- sample(c(0, 1), nrow(bosList), replace = TRUE, prob = c(.25, .75))
+boslist_test <- bosList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+boslist_train <- bosList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+bjList$train <- sample(c(0, 1), nrow(bjList), replace = TRUE, prob = c(.25, .75))
+bjList_test <- bjList %>% filter(train == 0)%>% mutate_if(is.character, as.factor)
+bjList_train <- bjList %>% filter(train == 1)%>% mutate_if(is.character, as.factor)
+
+boslist_train <- boslist_train[,-ncol(boslist_train)]
+boslist_test <- boslist_test[,-ncol(boslist_test)]
+
+bjList_train <- bjList_train[,-ncol(bjList_train)]
+bjList_test <-  bjList_test[,-ncol(bjList_test)]
+
+```
 
 
 #gradient boosting--Boston
