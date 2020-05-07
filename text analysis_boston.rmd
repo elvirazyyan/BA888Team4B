@@ -1,0 +1,155 @@
+---
+title: "Boston Text Analysis"
+author: "Peng Yuan"
+date: "2020/4/23"
+output: html_document
+---
+
+
+```{r message=FALSE, warning=FALSE}
+##############################################################################
+
+options(stringsAsFactors = FALSE)
+options(digits = 3)
+options(scipen = 999)  ## remove scientific notation - but need width
+
+## load the packages
+library(tidyverse)
+library(readxl)
+
+
+## new packages for us
+# install.packages("rvest")
+library(rvest)
+# install.packages("tidytext")
+library(tidytext)
+# install.packages("wordcloud)
+library(wordcloud)
+# install.packages("quanteda")
+library(quanteda)
+library(cld3)
+```
+
+
+```{r pressure, echo=FALSE}
+data = read.csv('Bosreviews.csv')
+head(data)
+```
+
+```{r}
+# detect_language(data$comments) 
+```
+
+```{r}
+data$en = detect_language(data$comments) == "en"
+data_clean = data %>% filter(en == TRUE)
+```
+
+
+```{r}
+tidy_data = data_clean %>% 
+  unnest_tokens(token, comments)
+head(tidy_data)
+```
+
+```{r}
+## first lets look at the data
+tidy_data %>% group_by(token) %>% count(sort=T) %>% print(n=15)
+```
+
+```{r}
+stopwords::stopwords_getsources()
+stopwords::stopwords_getlanguages("snowball")
+stopwords::stopwords_getlanguages("stopwords-iso")
+stopwords::stopwords_getlanguages("smart")
+```
+```{r}
+sw = get_stopwords()
+head(sw)
+```
+```{r}
+swnew = data.frame(word = c("boston", "stay","place"), lexicon = c("snowball"))
+sw_use = rbind(sw,swnew)
+tidy_data = tidy_data %>% 
+  anti_join(sw_use, by=c("token" = "word"))
+```
+
+```{r}
+head(tidy_data)
+```
+
+
+```{r}
+tidy_data %>% count(token, sort=T) %>% print(n=15)
+```
+
+
+```{r}
+data_tokens = tidy_data %>% count(token, sort=T)
+
+## the plot - basics
+wordcloud(words = data_tokens$token, 
+          freq = data_tokens$n, 
+          min.freq = 10, 
+          max.words = 70,
+          colors = brewer.pal(8, "Dark2"))
+```
+```{r}
+# get_sentiments("loughran")
+# get_sentiments("bing")
+# get_sentiments("afinn")
+```
+
+```{r}
+af = get_sentiments("afinn")
+hist(af$value, breaks = seq(-6, 6, 1))
+skimr::skim(af)
+```
+
+```{r}
+sent_bing = inner_join(tidy_data, get_sentiments("bing"), 
+                       by=c("token" = "word"))
+head(sent_bing)
+```
+
+```{r}
+##each comment as a document, and count of sentiment words
+sent_bing2 = sent_bing %>% 
+  count(id, token, sentiment) %>% 
+  pivot_wider(names_from = sentiment, 
+              values_from = n,
+              values_fill = list(n = 0))
+```
+
+
+```{r}
+## for each comment now, aggregate
+data_bing = sent_bing2 %>% 
+  group_by(id) %>% 
+  summarise(pos = sum(positive),
+         neg = sum(negative)) %>% 
+  mutate(polarity = pos - neg)
+head(data_bing)
+```
+
+```{r}
+skimr::skim(data_bing)
+```
+
+
+```{r}
+## now join the sentiment analysis result onto the original data
+data_sent1 = inner_join(data_clean, data_bing)
+```
+```{r}
+data_sent1 <- data_sent1 %>% select(-en)
+
+write.csv(data_sent1, 'Bosreviews_sent.csv')
+```
+
+
+```{r}
+## plot the result
+ ggplot(data_sent1, aes(x=listing_id, y=polarity)) + geom_boxplot() 
+```
+
